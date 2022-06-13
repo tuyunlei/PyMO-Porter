@@ -11,4 +11,3 @@
 * AVG Maker DS
     - 于任天堂DS上运行
 
-* YukimiScript
