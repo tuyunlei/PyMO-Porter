@@ -4,10 +4,12 @@ module PyMO where
 import Data.Word8 ( Word8 )
 import Data.Maybe ( fromMaybe, isJust, catMaybes, mapMaybe )
 import Data.String (IsString (fromString))
-import System.FilePath
+import System.FilePath ( takeBaseName )
 import Data.Char (isSpace)
 import Data.Bits (Bits(xor))
 import Data.List (elemIndex)
+import Prelude hiding (lines)
+import qualified Prelude (lines)
 
 
 type PosX = Float
@@ -186,6 +188,9 @@ loadPyMOGame = undefined -- TODO
 expandPyMOPackage :: PyMOGame -> IO ()
 expandPyMOPackage = undefined -- TODO
 
+lines :: String -> [String]
+lines = Prelude.lines . filter (/= '\r')
+
 instance IsString GameConfig where
   fromString text =
     GameConfig {
@@ -298,6 +303,7 @@ instance HasPyMOVars Instr where
   getPyMOVars (SelectImgs {}) = ["FSEL"]
   getPyMOVars (Rand v _ _) = [v]
   getPyMOVars (Date {}) = ["FMONTH", "FDATE"]
+  getPyMOVars _ = []
 
 instance HasPyMOVars a => HasPyMOVars [a] where
   getPyMOVars = concatMap getPyMOVars
