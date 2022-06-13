@@ -1,11 +1,19 @@
+{-# LANGUAGE FlexibleInstances #-}
 module PyMO where
 
-import Data.Word8
+import Data.Word8 ( Word8 )
+import Data.Maybe ( fromMaybe, isJust, catMaybes, mapMaybe )
+import Data.String (IsString (fromString))
+import System.FilePath
+import Data.Char (isSpace)
+import Data.Bits (Bits(xor))
+import Data.List (elemIndex)
+
 
 type PosX = Float
 type PosY = Float
 type Pos = (PosX, PosY)
-type Color = (Word8, Word8, Word8)
+data Color = Color Word8 Word8 Word8 deriving (Show, Eq)
 type Size = Int
 type ShowImmediately = Bool
 type CharaId = Int
@@ -17,7 +25,7 @@ type Time = Int
 type IsLoop = Bool
 type Var = String
 data Op = EQ | NE | GE | GT | LE | LT deriving (Show, Eq)
-data CoordMode 
+data CoordMode
   = CoordMode0
   | CoordMode1
   | CoordMode2
@@ -27,7 +35,7 @@ data CoordMode
   | CoordMode6
   deriving (Show, Eq)
 
-data Instr 
+data Instr
   = Say (Maybe String) String
   | Text String Pos Pos Color Size ShowImmediately
   | TextOff
@@ -82,12 +90,53 @@ data Instr
   | Config
   deriving (Show, Eq)
 
-data NameAlign = NameAlignLeft | NameAlignCenter | NameAlignRight
+data NameAlign = NameAlignLeft | NameAlignMiddle | NameAlignRight
   deriving (Show, Eq)
+
+data Platform = PyGame | S60v3 | S60v5
+  deriving (Show, Eq)
+
+data ScriptType = PyMO | MO1 | MO2 deriving (Show, Eq)
+
+instance IsString Platform where
+  fromString "pygame" = PyGame
+  fromString "s60v3" = S60v3
+  fromString "s60v5" = S60v5
+  fromString _ = error "Unknown platform"
+
+instance IsString ScriptType where
+  fromString "pymo" = PyMO
+  fromString "mo1" = MO1
+  fromString "mo2" = MO2
+  fromString _ = error "Unknown script type"
+
+instance IsString NameAlign where
+  fromString "left" = NameAlignLeft
+  fromString "middle" = NameAlignMiddle
+  fromString "right" = NameAlignRight
+  fromString _ = error "Unknown name align"
+
+instance (Read a, Read b) => IsString (a, b) where
+  fromString s = (read left, read $ tail right)
+    where (left, right) = span (/= ',') s
+
+instance IsString Color where
+  fromString ['#',r',r'',g',g'',b',b''] =
+    Color (read r)
+          (read g)
+          (read b)
+    where r = "0x" ++ [r', r'']
+          g = "0x" ++ [g', g'']
+          b = "0x" ++ [b', b'']
+  fromString intCol =
+    Color (fromIntegral $ colInt `div` 256 `div` 256)
+          (fromIntegral $ colInt `div` 256 `mod` 256)
+          (fromIntegral $ colInt `mod` 256)
+    where colInt = read intCol :: Int
 
 data GameConfig = GameConfig {
   gametitle :: String,
-  platform :: String,
+  platform :: Platform,
   engineversion :: String,
   scripttype :: String,
   bgformat :: String,
@@ -116,16 +165,146 @@ data GameConfig = GameConfig {
   namealign :: NameAlign
 } deriving (Show, Eq)
 
-data PyMOScript = PyMOScript Filename [Instr]
+data PyMOScript = PyMOScript Filename [Instr] deriving (Show, Eq)
 
-data PyMOGame = PyMOGame FilePath GameConfig [PyMOScript]
+type ForcOpened = Bool
+type CGName = String
+data CGAlbum = CGAlbum Filename [(Int, CGName, [Filename], ForcOpened)] deriving (Show, Eq)
+newtype MusicGallery = MusicGallery [(Filename, String)] deriving (Show, Eq)
+
+data PyMOGame =
+  PyMOGame FilePath GameConfig [PyMOScript] [CGAlbum] (Maybe MusicGallery)
+  deriving (Show, Eq)
 
 -- load pymogame from pymogame directory
 loadPyMOGame :: FilePath -> IO PyMOGame
-loadPyMOGame = undefined
+loadPyMOGame = undefined -- TODO
 
 -- expand pymo package (.pak file) in given pymogame directory
 -- if has no pak file, do nothing
 -- call shell command or executable `cpymo-tool unpack` to expand pak file
 expandPyMOPackage :: PyMOGame -> IO ()
-expandPyMOPackage = undefined
+expandPyMOPackage = undefined -- TODO
+
+instance IsString GameConfig where
+  fromString text =
+    GameConfig {
+      gametitle = get "" "gametitle",
+      platform = fromString $ get "pygame" "platform",
+      engineversion = get "pygame" "engineversion",
+      scripttype = fromString $ get "pymo" "scripttype",
+      bgformat = get ".png" "bgformat",
+      charaformat = get ".png" "charaformat",
+      charamaskformat = get ".png" "charamaskformat",
+      bgmformat = get ".mp3" "bgmformat",
+      seformat = get ".mp3" "seformat",
+      voiceformat = get ".mp3" "voiceformat",
+      font = get "-1" "font",
+      fontsize = read $ get "16" "fontsize",
+      fontaa = (> 0) $ read $ get "0" "fontaa",
+      hint = (> 0) $ read $ get "1" "hint",
+      prefetching = (> 0) $ read $ get "1" "prefetching",
+      grayselected = (> 0) $ read $ get "1" "grayselected",
+      playvideo = (> 0) $ read $ get "1" "playvideo",
+      textspeed = read $ get "3" "textspeed",
+      bgmvolume = read $ get "3" "bgmvolume",
+      vovolume = read $ get "3" "vovolume",
+      imagesize = fromString $ get "800,600" "imagesize",
+      startscript = get "" "startscript",
+      nameboxorig = fromString $ get "0,0" "nameboxorig",
+      cgprefix = get "" "cgprefix",
+      textcolor = fromString $ get "#FFFFFF" "textcolor",
+      msgtb = fromString $ get "0,0" "msgtb",
+      msglr = fromString $ get "0,0" "msglr",
+      namealign = fromString $ get "left" "namealign"
+    }
+    where get def key = fromMaybe def $ lookup key kvs
+          kvs = (\x -> (takeWhile (/= ',') x, tail $ dropWhile (/= ',') x)) <$> lines text
+
+loadPyMOGameConfig :: FilePath -> IO GameConfig
+loadPyMOGameConfig path = fromString <$> readFile path
+
+trim :: String -> String
+trim = f . f
+   where f = reverse . dropWhile isSpace
+
+mkPyMOInstr :: String -> [String] -> Maybe Instr
+mkPyMOInstr "say" [text] = Just $ Say Nothing text
+mkPyMOInstr "say" [ch, text] = Just $ Say (Just ch) text
+mkPyMOInstr "text" [content, x1, y1, x2, y2, color, size, showImm] =
+  Just $ Text content (read x1, read y1) (read x2, read y2)
+                      (fromString color) (read size) ((> 0) $ read showImm)
+mkPyMOInstr "text_off" [] = Just TextOff
+mkPyMOInstr "waitkey" [] = Just WaitKey
+mkPyMOInstr "title" [title] = Just $ Title title
+mkPyMOInstr "title_dsp" [] = Just TitleDsp
+-- More Instrs
+mkPyMOInstr _ _ = Nothing
+
+parseLineToPyMOInstr :: String -> Maybe Instr
+parseLineToPyMOInstr ('#':x) =
+  mkPyMOInstr command args
+  where (command, args) = (takeWhile (/= ' ') x, splitArgs $ trim $ dropWhile (/= ' ') x)
+        splitArgs [] = []
+        splitArgs (',':x) = splitArgs x
+        splitArgs x = takeWhile (/= ',') x:splitArgs (dropWhile (/= ',') x)
+parseLineToPyMOInstr _ = Nothing
+
+removeComment :: String -> String
+removeComment = takeWhile (/= ';')
+
+loadPyMOScript :: FilePath -> IO PyMOScript
+loadPyMOScript path = do
+  l <- lines <$> readFile path
+  let instrs = mapMaybe (parseLineToPyMOInstr . trim . removeComment) l
+  return $ PyMOScript (takeBaseName path) instrs
+
+loadAllPyMOScripts :: FilePath -> String -> IO [PyMOScript]
+loadAllPyMOScripts scriptDir startupScript = load [startupScript] []
+  where load :: [String] -> [String] -> IO [PyMOScript]
+        load scriptToLoad scriptLoaded = undefined  -- TODO
+        -- load scripts from 'change' 'call' command.
+        -- load album, music list from 'album' 'music' command.
+
+loadCGAlbum :: FilePath -> IO CGAlbum
+loadCGAlbum = undefined -- TODO
+
+instance IsString MusicGallery where
+  fromString = MusicGallery . mapMaybe (parseLine . trim) . lines
+    where parseLine [] = Nothing
+          parseLine x = do
+            p <- elemIndex ',' x
+            let file = take p x
+                name = drop (p + 1) x
+            return (file, name)
+
+
+loadBGMGallery :: FilePath -> IO MusicGallery
+loadBGMGallery path = fromString <$> readFile path
+
+class HasPyMOVars a where
+  getPyMOVars :: a -> [Var]
+
+instance HasPyMOVars Instr where
+  getPyMOVars (Set v _) = [v]
+  getPyMOVars (Add v _) = [v]
+  getPyMOVars (Sub v _) = [v]
+  getPyMOVars (IfGoto v _ (Right _) _) = [v]
+  getPyMOVars (IfGoto v _ (Left v') _) = [v, v']
+  getPyMOVars (Sel {}) = ["FSEL"]
+  getPyMOVars (SelectText {}) = ["FSEL"]
+  getPyMOVars (SelectVar {}) = ["FSEL"]
+  getPyMOVars (SelectImg {}) = ["FSEL"]
+  getPyMOVars (SelectImgs {}) = ["FSEL"]
+  getPyMOVars (Rand v _ _) = [v]
+  getPyMOVars (Date {}) = ["FMONTH", "FDATE"]
+
+instance HasPyMOVars a => HasPyMOVars [a] where
+  getPyMOVars = concatMap getPyMOVars
+
+instance HasPyMOVars PyMOScript where
+  getPyMOVars (PyMOScript _ x) = getPyMOVars x
+
+instance HasPyMOVars PyMOGame where
+  getPyMOVars (PyMOGame _ _ x _ _) = getPyMOVars x
+
