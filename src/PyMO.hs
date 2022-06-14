@@ -4,7 +4,7 @@ module PyMO where
 import Data.Word8 ( Word8 )
 import Data.Maybe ( fromMaybe, isJust, catMaybes, mapMaybe )
 import Data.String (IsString (fromString))
-import System.FilePath ( takeBaseName )
+import System.FilePath ( takeBaseName, (</>), (<.>) )
 import Data.Char (isSpace)
 import Data.Bits (Bits(xor))
 import Data.List (elemIndex)
@@ -63,9 +63,9 @@ data Instr
   | AnimeOn Int Filename Pos Time IsLoop
   | AnimeOff Filename
   | CharaAnime CharaId Time Int [Pos]
-  | Set Var Int
-  | Add Var Int
-  | Sub Var Int
+  | Set Var (Either Var Int)
+  | Add Var (Either Var Int)
+  | Sub Var (Either Var Int)
   | Label String
   | Goto String
   | IfGoto Var Op (Either Var Int) String
@@ -88,7 +88,7 @@ data Instr
   | Load (Maybe Int)
   | Album (Maybe Filename)
   | Music
-  | Date
+  | Date Filename Pos Color
   | Config
   deriving (Show, Eq)
 
@@ -136,6 +136,12 @@ instance IsString Color where
           (fromIntegral $ colInt `mod` 256)
     where colInt = read intCol :: Int
 
+instance IsString Transition where
+  fromString "BG_NOFADE" = BGNofade
+  fromString "BG_ALPHA" = BGAlpha
+  fromString "BG_FADE" = BGFade
+  fromString _ = error "Unknown transition"
+
 data GameConfig = GameConfig {
   gametitle :: String,
   platform :: Platform,
@@ -178,9 +184,35 @@ data PyMOGame =
   PyMOGame FilePath GameConfig [PyMOScript] [CGAlbum] (Maybe MusicGallery)
   deriving (Show, Eq)
 
+-- split string by comma
+splitArgs :: String -> [String]
+splitArgs [] = []
+splitArgs x = case elemIndex ',' x of
+  Nothing -> [x]
+  (Just p) -> first:splitArgs remain
+              where first = take p x
+                    remain = drop (p+1) x
+
 -- load pymogame from pymogame directory
 loadPyMOGame :: FilePath -> IO PyMOGame
-loadPyMOGame = undefined -- TODO
+loadPyMOGame path = do
+  let getAlbumName (Album (Just x)) = Just x
+      getAlbumName (Album Nothing) = Just "album_list"
+      getAlbumName _ = Nothing
+  let getInstrs (PyMOScript _ instrs) = instrs
+  let isMusic Music = True
+      isMusic _ = False
+
+  config <- loadPyMOGameConfig $ path </> "gameconfig.txt"
+  let scriptDir = path </> "script"
+  scripts <- loadAllPyMOScripts scriptDir (startscript config)
+  let allInstrs = concatMap getInstrs scripts
+  let albumNames = mapMaybe getAlbumName allInstrs
+  albums <- mapM (loadCGAlbum . (\name -> scriptDir </> name <.> "txt")) albumNames
+  let hasMusicGallery = any isMusic allInstrs
+  let getGallery = loadBGMGallery $ scriptDir </> "music_list.txt"
+  musicGallery <- sequence $ if hasMusicGallery then Just getGallery else Nothing
+  return $ PyMOGame path config scripts albums musicGallery
 
 -- expand pymo package (.pak file) in given pymogame directory
 -- if has no pak file, do nothing
@@ -243,6 +275,68 @@ mkPyMOInstr "text_off" [] = Just TextOff
 mkPyMOInstr "waitkey" [] = Just WaitKey
 mkPyMOInstr "title" [title] = Just $ Title title
 mkPyMOInstr "title_dsp" [] = Just TitleDsp
+-- mkPyMOInstr "chara" [charaID1,filename1,position1,layer1,time] = Just Chara
+-- mkPyMOInstr "chara" [charaID1,filename1,position1,layer1,charaID2,filename2,position2,
+-- layer2...,time] = Just Chara
+-- mkPyMOInstr "chara_cls" [charaID] = Just $ CharaCls (read charaID) 300
+-- mkPyMOInstr "chara_cls" [charaID,time] = Just $ CharaCls (read charaID) (read time)
+-- mkPyMOInstr "chara_pos" [charaID,new_x,new_y, coord_mode] =
+--   Just $ CharaPos (read charaID) (read new_x) (read new_y)
+-- mkPyMOInstr "bg" [filename] = Just $ Bg filename BGAlpha 300 Nothing
+-- mkPyMOInstr "bg" [filename, transition, time] =
+--   Just $ Bg filename (fromString transition) (read time) Nothing
+-- mkPyMOInstr "bg" [filename, transition, time, x, y] =
+--   Just $ Bg filename (fromString transition) (read time) (Just (read x, read y))
+mkPyMOInstr "flash" [color, time] = Just $ Flash (fromString color) (read time)
+mkPyMOInstr "quake" [] = Just Quake
+mkPyMOInstr "fade_out" [color, time] = Just $ FadeOut (fromString color) (read time)
+mkPyMOInstr "fade_in" [time] = Just $ FadeIn (read time)
+mkPyMOInstr "movie" [filename] = Just $ Movie filename
+mkPyMOInstr "textbox" [message, name] = Just $ Textbox message name
+-- mkPyMOInstr "chara_quake"
+-- mkPyMOInstr "chara_down"
+-- mkPyMOInstr "chara_up"
+mkPyMOInstr "scroll" [filename, startx, starty, endx, endy, time] =
+  Just $ Scroll filename (read startx, read starty) (read endx, read endy) (read time)
+-- mkPyMOInstr "chara_y"
+-- mkPyMOInstr "chara_scroll"
+mkPyMOInstr "anime_on" [num, filename, x ,y, interval, isloop] =
+  Just $ AnimeOn (read num) filename (read x, read y) (read interval) (read isloop)
+mkPyMOInstr "anime_off" [filename] = Just $ AnimeOff filename
+-- mkPyMOInstr "chara_anime"
+-- mkPyMOInstr "set" [name, value] = Just $ Set name value
+-- mkPyMOInstr "add"
+-- mkPyMOInstr "sub"
+mkPyMOInstr "label" [name] = Just $ Label name
+mkPyMOInstr "goto" [name] = Just $ Goto name
+-- mkPyMOInstr "if...goto"
+mkPyMOInstr "change" [filename] = Just $ Change filename
+mkPyMOInstr "call" [filename] = Just $ Call filename
+mkPyMOInstr "ret" [] = Just Ret
+-- mkPyMOInstr "sel"
+-- mkPyMOInstr "select_text"
+-- mkPyMOInstr "select_var"
+-- mkPyMOInstr "select_img"
+-- mkPyMOInstr "select_imgs"
+mkPyMOInstr "wait" [time] = Just $ Wait (read time)
+mkPyMOInstr "wait_se" [] = Just WaitSe
+mkPyMOInstr "rand" [name, min, max] = Just $ Rand name (read min) (read max)
+mkPyMOInstr "bgm" [filename] = Just $ Bgm filename True
+mkPyMOInstr "bgm" [filename, isloop] = Just $ Bgm filename (read isloop)
+mkPyMOInstr "bgm_stop" [] = Just BgmStop
+mkPyMOInstr "se" [filename] = Just $ Se filename True
+mkPyMOInstr "se" [filename, isloop] = Just $ Se filename (read isloop)
+mkPyMOInstr "se_stop" [] = Just SeStop
+mkPyMOInstr "vo" [filename] = Just $ Vo filename
+mkPyMOInstr "load" [] = Just $ Load Nothing
+mkPyMOInstr "load" [save_num] = Just $ Load $ Just (read save_num)
+mkPyMOInstr "album" [] = Just $ Album Nothing
+mkPyMOInstr "album" [filename] = Just $ Album $ Just filename
+mkPyMOInstr "music" [] = Just Music
+mkPyMOInstr "date" [bg, x, y, color] =
+  Just $ Date bg (read x, read y) (fromString color)
+mkPyMOInstr "config" [] = Just Config
+
 -- More Instrs
 mkPyMOInstr _ _ = Nothing
 
@@ -250,9 +344,6 @@ parseLineToPyMOInstr :: String -> Maybe Instr
 parseLineToPyMOInstr ('#':x) =
   mkPyMOInstr command args
   where (command, args) = (takeWhile (/= ' ') x, splitArgs $ trim $ dropWhile (/= ' ') x)
-        splitArgs [] = []
-        splitArgs (',':x) = splitArgs x
-        splitArgs x = takeWhile (/= ',') x:splitArgs (dropWhile (/= ',') x)
 parseLineToPyMOInstr _ = Nothing
 
 removeComment :: String -> String
@@ -264,15 +355,41 @@ loadPyMOScript path = do
   let instrs = mapMaybe (parseLineToPyMOInstr . trim . removeComment) l
   return $ PyMOScript (takeBaseName path) instrs
 
+-- load scripts from 'change' 'call' command.
 loadAllPyMOScripts :: FilePath -> String -> IO [PyMOScript]
 loadAllPyMOScripts scriptDir startupScript = load [startupScript] []
   where load :: [String] -> [String] -> IO [PyMOScript]
-        load scriptToLoad scriptLoaded = undefined  -- TODO
-        -- load scripts from 'change' 'call' command.
-        -- load album, music list from 'album' 'music' command.
+        load [] scriptLoaded = return []
+        load scriptToLoad scriptLoaded = do
+            let needToLoad :: Instr -> Maybe String
+                needToLoad (Change filename) = Just filename
+                needToLoad (Call filename) = Just filename
+                needToLoad _ = Nothing
+            let getNeedToLoadList :: PyMOScript -> [String]
+                getNeedToLoadList (PyMOScript _ instrs) =
+                    filter (`notElem` scriptLoaded) (mapMaybe needToLoad instrs)
+            let getScriptPath :: String -> FilePath
+                getScriptPath name = scriptDir </> name <.> "txt"
+
+            scripts <- mapM (loadPyMOScript . getScriptPath) scriptToLoad
+            let needToLoads = concatMap getNeedToLoadList scripts
+            newScripts <- load needToLoads (scriptLoaded ++ scriptToLoad)
+            return $ scripts ++ newScripts
 
 loadCGAlbum :: FilePath -> IO CGAlbum
-loadCGAlbum = undefined -- TODO
+loadCGAlbum path = do
+  let parseArgsToCGItem :: [String] -> Maybe (Int, CGName, [Filename], ForcOpened)
+      parseArgsToCGItem (p:n:cg:xs) = do
+        Just (read p, cg, names, forcOpened)
+        where num = read n :: Int
+              names = take num xs
+              remains = drop num xs
+              forcOpened = not (null remains) && read (last remains) == 1
+      parseArgsToCGItem _ = Nothing
+
+  content <- readFile path
+  let items = mapMaybe (parseArgsToCGItem . splitArgs) (lines content)
+  return $ CGAlbum (takeBaseName path) items
 
 instance IsString MusicGallery where
   fromString = MusicGallery . mapMaybe (parseLine . trim) . lines
