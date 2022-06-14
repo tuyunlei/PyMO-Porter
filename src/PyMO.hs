@@ -10,7 +10,7 @@ import Data.Bits (Bits(xor))
 import Data.List (elemIndex)
 import Prelude hiding (lines)
 import qualified Prelude (lines)
-
+import System.IO (openFile, IOMode (ReadMode), utf8, hSetEncoding, hGetContents)
 
 type PosX = Float
 type PosY = Float
@@ -396,7 +396,9 @@ removeComment = takeWhile (/= ';')
 
 loadPyMOScript :: FilePath -> IO PyMOScript
 loadPyMOScript path = do
-  l <- lines <$> readFile path
+  h <- openFile path ReadMode
+  hSetEncoding h utf8
+  l <- lines <$> hGetContents h 
   let instrs = mapMaybe (parseLineToPyMOInstr . trim . removeComment) l
   return $ PyMOScript (takeBaseName path) instrs
 
