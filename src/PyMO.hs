@@ -5,7 +5,7 @@ import Data.Word8 ( Word8 )
 import Data.Maybe ( fromMaybe, isJust, catMaybes, mapMaybe )
 import Data.String (IsString (fromString))
 import System.FilePath ( takeBaseName, (</>), (<.>) )
-import Data.Char (isSpace)
+import Data.Char (isSpace, isDigit)
 import Data.Bits (Bits(xor))
 import Data.List (elemIndex)
 import Prelude hiding (lines)
@@ -142,6 +142,20 @@ instance IsString Transition where
   fromString "BG_FADE" = BGFade
   fromString _ = error "Unknown transition"
 
+instance IsString CharaClsId where
+  fromString "a" = CharaClsA
+  fromString x = CharaClsId $ read x
+
+instance IsString CoordMode where
+  fromString "0" = CoordMode0
+  fromString "1" = CoordMode1
+  fromString "2" = CoordMode2
+  fromString "3" = CoordMode3
+  fromString "4" = CoordMode4
+  fromString "5" = CoordMode5
+  fromString "6" = CoordMode6
+  fromString _ = error "Unknown coord mode"
+
 data GameConfig = GameConfig {
   gametitle :: String,
   platform :: Platform,
@@ -216,7 +230,7 @@ loadPyMOGame path = do
 
 -- expand pymo package (.pak file) in given pymogame directory
 -- if has no pak file, do nothing
--- call shell command or executable `cpymo-tool unpack` to expand pak file
+-- https://github.com/Strrationalism/CPyMO/blob/main/cpymo/cpymo_package.c
 expandPyMOPackage :: PyMOGame -> IO ()
 expandPyMOPackage = undefined -- TODO
 
@@ -265,6 +279,13 @@ trim :: String -> String
 trim = f . f
    where f = reverse . dropWhile isSpace
 
+readVarOrInt :: String -> Either Var Int
+readVarOrInt x = if all isDigit x then Right $ read x else Left x
+
+readCharaFilename :: String -> Maybe String
+readCharaFilename "NULL" = Nothing
+readCharaFilename x = Just x
+
 mkPyMOInstr :: String -> [String] -> Maybe Instr
 mkPyMOInstr "say" [text] = Just $ Say Nothing text
 mkPyMOInstr "say" [ch, text] = Just $ Say (Just ch) text
@@ -275,38 +296,58 @@ mkPyMOInstr "text_off" [] = Just TextOff
 mkPyMOInstr "waitkey" [] = Just WaitKey
 mkPyMOInstr "title" [title] = Just $ Title title
 mkPyMOInstr "title_dsp" [] = Just TitleDsp
--- mkPyMOInstr "chara" [charaID1,filename1,position1,layer1,time] = Just Chara
--- mkPyMOInstr "chara" [charaID1,filename1,position1,layer1,charaID2,filename2,position2,
--- layer2...,time] = Just Chara
--- mkPyMOInstr "chara_cls" [charaID] = Just $ CharaCls (read charaID) 300
--- mkPyMOInstr "chara_cls" [charaID,time] = Just $ CharaCls (read charaID) (read time)
--- mkPyMOInstr "chara_pos" [charaID,new_x,new_y, coord_mode] =
---   Just $ CharaPos (read charaID) (read new_x) (read new_y)
--- mkPyMOInstr "bg" [filename] = Just $ Bg filename BGAlpha 300 Nothing
--- mkPyMOInstr "bg" [filename, transition, time] =
---   Just $ Bg filename (fromString transition) (read time) Nothing
--- mkPyMOInstr "bg" [filename, transition, time, x, y] =
---   Just $ Bg filename (fromString transition) (read time) (Just (read x, read y))
+mkPyMOInstr "chara" x = 
+  Just $ Chara (readCharas x) (read $ last x)
+  where 
+    readCharas (charaId:filename:pos:layer:next) = 
+      (read charaId, readCharaFilename filename, read pos, read layer):readCharas next
+    readCharas _ = []
+mkPyMOInstr "chara_cls" [charaID] = Just $ CharaCls (fromString charaID) 300
+mkPyMOInstr "chara_cls" [charaID,time] = Just $ CharaCls (fromString charaID) (read time)
+mkPyMOInstr "chara_pos" [charaID,new_x,new_y, coord_mode] =
+  Just $ CharaPos (read charaID) (read new_x, read new_y) (fromString coord_mode)
+mkPyMOInstr "bg" [filename] = Just $ Bg filename BGAlpha 300 Nothing
+mkPyMOInstr "bg" [filename, transition, time] =
+  Just $ Bg filename (fromString transition) (read time) Nothing
+mkPyMOInstr "bg" [filename, transition, time, x, y] =
+  Just $ Bg filename (fromString transition) (read time) (Just (read x, read y))
 mkPyMOInstr "flash" [color, time] = Just $ Flash (fromString color) (read time)
 mkPyMOInstr "quake" [] = Just Quake
 mkPyMOInstr "fade_out" [color, time] = Just $ FadeOut (fromString color) (read time)
 mkPyMOInstr "fade_in" [time] = Just $ FadeIn (read time)
 mkPyMOInstr "movie" [filename] = Just $ Movie filename
 mkPyMOInstr "textbox" [message, name] = Just $ Textbox message name
--- mkPyMOInstr "chara_quake"
--- mkPyMOInstr "chara_down"
--- mkPyMOInstr "chara_up"
+mkPyMOInstr "chara_quake" ids = Just $ CharaQuake (map read ids)
+mkPyMOInstr "chara_down" ids = Just $ CharaDown (map read ids)
+mkPyMOInstr "chara_up" ids = Just $ CharaUp (map read ids)
 mkPyMOInstr "scroll" [filename, startx, starty, endx, endy, time] =
   Just $ Scroll filename (read startx, read starty) (read endx, read endy) (read time)
--- mkPyMOInstr "chara_y"
--- mkPyMOInstr "chara_scroll"
+mkPyMOInstr "chara_y" (coordMode:x) = 
+  Just $ CharaY (fromString coordMode) (readCharaYs x) (read $ last x)
+  where
+    readCharaYs (charaId:filename:x:y:layer:n) =
+      (read charaId, readCharaFilename filename, (read x, read y), read layer):readCharaYs n
+    readCharaYs _ = []
+mkPyMOInstr "chara_scroll" [coord_mode, charaId, filename, sx, sy, ex, ey, ba, layer, time] =
+  Just $ CharaScroll (fromString coord_mode) 
+                     (read charaId)
+                     filename 
+                     (read sx, read sy) 
+                     (read ex, read ey) 
+                     (read ba) 
+                     (read layer) 
+                     (read time)
 mkPyMOInstr "anime_on" [num, filename, x ,y, interval, isloop] =
   Just $ AnimeOn (read num) filename (read x, read y) (read interval) (read isloop)
 mkPyMOInstr "anime_off" [filename] = Just $ AnimeOff filename
--- mkPyMOInstr "chara_anime"
--- mkPyMOInstr "set" [name, value] = Just $ Set name value
--- mkPyMOInstr "add"
--- mkPyMOInstr "sub"
+mkPyMOInstr "chara_anime" (charaId:period:loopNum:offsets) =
+  Just $ CharaAnime (read charaId) (read period) (read loopNum) (readOffsets offsets)
+  where readOffsets [] = []
+        readOffsets [_] = []
+        readOffsets (x:y:xs) = (read x, read y) : readOffsets xs
+mkPyMOInstr "set" [name, value] = Just $ Set name $ readVarOrInt value
+mkPyMOInstr "add" [name, value] = Just $ Add name $ readVarOrInt value
+mkPyMOInstr "sub" [name, value] = Just $ Sub name $ readVarOrInt value
 mkPyMOInstr "label" [name] = Just $ Label name
 mkPyMOInstr "goto" [name] = Just $ Goto name
 -- mkPyMOInstr "if...goto"
@@ -314,7 +355,12 @@ mkPyMOInstr "change" [filename] = Just $ Change filename
 mkPyMOInstr "call" [filename] = Just $ Call filename
 mkPyMOInstr "ret" [] = Just Ret
 -- mkPyMOInstr "sel"
--- mkPyMOInstr "select_text"
+mkPyMOInstr "select_text" (choiceNum:x) =
+  Just $ SelectText (take (read choiceNum) x) pos1 pos2 col initpos
+  where readOpts [x1,y1,x2,y2,col,initpos] = 
+          ((read x1, read y1), (read x2, read y2), fromString col, read initpos)
+        readOpts _ = error "select_text: invalid options"
+        (pos1, pos2, col, initpos) = readOpts $ drop (read choiceNum) x
 -- mkPyMOInstr "select_var"
 -- mkPyMOInstr "select_img"
 -- mkPyMOInstr "select_imgs"
@@ -333,8 +379,7 @@ mkPyMOInstr "load" [save_num] = Just $ Load $ Just (read save_num)
 mkPyMOInstr "album" [] = Just $ Album Nothing
 mkPyMOInstr "album" [filename] = Just $ Album $ Just filename
 mkPyMOInstr "music" [] = Just Music
-mkPyMOInstr "date" [bg, x, y, color] =
-  Just $ Date bg (read x, read y) (fromString color)
+mkPyMOInstr "date" [bg, x, y, color] = Just $ Date bg (read x, read y) (fromString color)
 mkPyMOInstr "config" [] = Just Config
 
 -- More Instrs

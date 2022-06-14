@@ -1,3 +1,5 @@
+{-# LANGUAGE ExistentialQuantification #-}
+
 module PyMO2NScripter
 {-  ( pymo2nscripterGB18030
   , pymo2nscripterUTF8
@@ -9,11 +11,19 @@ import GHC.IO.Encoding
 import GHC.Base (undefined)
 import Control.Monad.Writer
 import Prelude hiding (log)
+import Data.Bifunctor (Bifunctor(bimap))
+import GHC.IO.Handle (hGetEncoding, hPutStr)
+import System.IO (openFile, hSetEncoding, IOMode (WriteMode), hClose, openBinaryFile)
+import System.FilePath ((</>))
 
 -- expand pymo pak file and generate nscript.dat (or 0.txt for nscripter?)
 -- https://kaisernet.fka.cx/onscripter/api/NScrAPI-framed.html
 pymo2nscripter :: TextEncoding -> PyMOGame -> IO ()
-pymo2nscripter = undefined
+pymo2nscripter encoding game = do
+  let (nscript, log) = getNScriptAndLog $ writePyMOGame game
+      (PyMOGame path _ _ _ _) = game
+  setLocaleEncoding encoding
+  writeFile (path </> "0.txt") nscript
 
 pymo2nscripterGB18030 :: PyMOGame -> IO ()
 pymo2nscripterGB18030 game = mkTextEncoding "CP54936" >>= \x -> pymo2nscripter x game
@@ -47,13 +57,13 @@ writeGameConfig gc = do
   ns "game"
 
 writePyMOGame :: PyMOGame -> NSWriter ()
-writePyMOGame = undefined
+writePyMOGame (PyMOGame path gameconfig scripts album musicGallery) = do
+  writeGameConfig gameconfig
 
 writePyMOScript :: PyMOScript -> NSWriter ()
-writePyMOScript = undefined
+writePyMOScript _ = pure () -- TODO
 
-getNScript :: NSWriter () -> String
-getNScript = unlines . fst . execWriter
+getNScriptAndLog :: NSWriter () -> (String, String)
+getNScriptAndLog w = bimap unlines unlines r
+  where r = execWriter w
 
-getLog :: NSWriter a -> String
-getLog = unlines . snd . execWriter
