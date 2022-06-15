@@ -291,6 +291,11 @@ getBgTime s
   | s == "BG_VERYFAST" = 300
   | otherwise = read s
 
+getSeIsLoop :: String -> IsLoop
+getSeIsLoop "1" = True
+getSeIsLoop "0" = False
+getSeIsLoop s = read s
+
 mkPyMOInstr :: String -> [String] -> Maybe Instr
 mkPyMOInstr "say" [text] = Just $ Say Nothing text
 mkPyMOInstr "say" [ch, text] = Just $ Say (Just ch) text
@@ -376,7 +381,7 @@ mkPyMOInstr "bgm" [filename] = Just $ Bgm filename True
 mkPyMOInstr "bgm" [filename, isloop] = Just $ Bgm filename (read isloop)
 mkPyMOInstr "bgm_stop" [] = Just BgmStop
 mkPyMOInstr "se" [filename] = Just $ Se filename True
-mkPyMOInstr "se" [filename, isloop] = Just $ Se filename (read isloop)
+mkPyMOInstr "se" [filename, isloop] = Just $ Se filename (getSeIsLoop isloop)
 mkPyMOInstr "se_stop" [] = Just SeStop
 mkPyMOInstr "vo" [filename] = Just $ Vo filename
 mkPyMOInstr "load" [] = Just $ Load Nothing
