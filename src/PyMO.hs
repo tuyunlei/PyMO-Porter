@@ -140,7 +140,7 @@ instance IsString Transition where
   fromString "BG_NOFADE" = BGNofade
   fromString "BG_ALPHA" = BGAlpha
   fromString "BG_FADE" = BGFade
-  fromString _ = error "Unknown transition"
+  fromString s = BGMask s
 
 instance IsString CharaClsId where
   fromString "a" = CharaClsA
