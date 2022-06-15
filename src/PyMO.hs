@@ -286,6 +286,11 @@ readCharaFilename :: String -> Maybe String
 readCharaFilename "NULL" = Nothing
 readCharaFilename x = Just x
 
+getBgTime :: String -> Time
+getBgTime s
+  | s == "BG_VERYFAST" = 300
+  | otherwise = read s
+
 mkPyMOInstr :: String -> [String] -> Maybe Instr
 mkPyMOInstr "say" [text] = Just $ Say Nothing text
 mkPyMOInstr "say" [ch, text] = Just $ Say (Just ch) text
@@ -308,7 +313,7 @@ mkPyMOInstr "chara_pos" [charaID,new_x,new_y, coord_mode] =
   Just $ CharaPos (read charaID) (read new_x, read new_y) (fromString coord_mode)
 mkPyMOInstr "bg" [filename] = Just $ Bg filename BGAlpha 300 Nothing
 mkPyMOInstr "bg" [filename, transition, time] =
-  Just $ Bg filename (fromString transition) (read time) Nothing
+  Just $ Bg filename (fromString transition) (getBgTime time) Nothing
 mkPyMOInstr "bg" [filename, transition, time, x, y] =
   Just $ Bg filename (fromString transition) (read time) (Just (read x, read y))
 mkPyMOInstr "flash" [color, time] = Just $ Flash (fromString color) (read time)
