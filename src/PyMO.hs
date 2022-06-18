@@ -10,7 +10,7 @@ import Data.Bits (Bits(xor))
 import Data.List (elemIndex)
 import Prelude hiding (lines)
 import qualified Prelude (lines)
-
+import System.IO (openFile, IOMode (ReadMode), utf8, hSetEncoding, hGetContents)
 
 type PosX = Float
 type PosY = Float
@@ -140,7 +140,7 @@ instance IsString Transition where
   fromString "BG_NOFADE" = BGNofade
   fromString "BG_ALPHA" = BGAlpha
   fromString "BG_FADE" = BGFade
-  fromString _ = error "Unknown transition"
+  fromString s = BGMask s
 
 instance IsString CharaClsId where
   fromString "a" = CharaClsA
@@ -286,6 +286,16 @@ readCharaFilename :: String -> Maybe String
 readCharaFilename "NULL" = Nothing
 readCharaFilename x = Just x
 
+getBgTime :: String -> Time
+getBgTime s
+  | s == "BG_VERYFAST" = 300
+  | otherwise = read s
+
+getSeIsLoop :: String -> IsLoop
+getSeIsLoop "1" = True
+getSeIsLoop "0" = False
+getSeIsLoop s = read s
+
 mkPyMOInstr :: String -> [String] -> Maybe Instr
 mkPyMOInstr "say" [text] = Just $ Say Nothing text
 mkPyMOInstr "say" [ch, text] = Just $ Say (Just ch) text
@@ -308,7 +318,7 @@ mkPyMOInstr "chara_pos" [charaID,new_x,new_y, coord_mode] =
   Just $ CharaPos (read charaID) (read new_x, read new_y) (fromString coord_mode)
 mkPyMOInstr "bg" [filename] = Just $ Bg filename BGAlpha 300 Nothing
 mkPyMOInstr "bg" [filename, transition, time] =
-  Just $ Bg filename (fromString transition) (read time) Nothing
+  Just $ Bg filename (fromString transition) (getBgTime time) Nothing
 mkPyMOInstr "bg" [filename, transition, time, x, y] =
   Just $ Bg filename (fromString transition) (read time) (Just (read x, read y))
 mkPyMOInstr "flash" [color, time] = Just $ Flash (fromString color) (read time)
@@ -371,7 +381,7 @@ mkPyMOInstr "bgm" [filename] = Just $ Bgm filename True
 mkPyMOInstr "bgm" [filename, isloop] = Just $ Bgm filename (read isloop)
 mkPyMOInstr "bgm_stop" [] = Just BgmStop
 mkPyMOInstr "se" [filename] = Just $ Se filename True
-mkPyMOInstr "se" [filename, isloop] = Just $ Se filename (read isloop)
+mkPyMOInstr "se" [filename, isloop] = Just $ Se filename (getSeIsLoop isloop)
 mkPyMOInstr "se_stop" [] = Just SeStop
 mkPyMOInstr "vo" [filename] = Just $ Vo filename
 mkPyMOInstr "load" [] = Just $ Load Nothing
@@ -396,7 +406,9 @@ removeComment = takeWhile (/= ';')
 
 loadPyMOScript :: FilePath -> IO PyMOScript
 loadPyMOScript path = do
-  l <- lines <$> readFile path
+  h <- openFile path ReadMode
+  hSetEncoding h utf8
+  l <- lines <$> hGetContents h 
   let instrs = mapMaybe (parseLineToPyMOInstr . trim . removeComment) l
   return $ PyMOScript (takeBaseName path) instrs
 
