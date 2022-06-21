@@ -5,7 +5,10 @@ import PyMO2NScripter
 import System.Environment (getArgs)
 
 targets :: [(String, String)]
-targets = [("ns-utf8", "ONScripter-EN")]
+targets = [
+  ("ns-utf8", "Runs on ONScripter-EN"),
+  ("ns-gb", "Runs on NScripter-GBK, ONScripter-GBK, ONScripter-Jh"),
+  ("ns-sjis", "Runs on NScripter, ONScripter")]
 
 help :: IO ()
 help = do  
@@ -27,6 +30,8 @@ main = do
       game <- loadPyMOGame pymogame
       case target of
         "ns-utf8" -> pymo2nscripterUTF8 game
+        "ns-gb" -> pymo2nscripterGB18030 game
+        "ns-sjis" -> pymo2nscripterSJIS game
         _ -> help
     _ -> help
 

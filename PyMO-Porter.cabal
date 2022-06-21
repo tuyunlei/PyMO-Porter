@@ -20,4 +20,3 @@ executable PyMO-Porter
   build-depends:       base >= 4.15.1 && < 5, word8, filepath, mtl, bytestring, encoding
   other-modules:       PyMO
                      , PyMO2NScripter
-                     , Encoding

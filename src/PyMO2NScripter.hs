@@ -1,4 +1,5 @@
 {-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE ImplicitParams #-}
 
 module PyMO2NScripter
 {-  ( pymo2nscripterGB18030
@@ -10,23 +11,34 @@ import PyMO
 import GHC.IO.Encoding
 import GHC.Base (undefined)
 import Control.Monad.Writer
-import Prelude hiding (log)
+import Prelude hiding (writeFile, log)
 import Data.Bifunctor (Bifunctor(bimap))
 import GHC.IO.Handle (hGetEncoding, hPutStr)
 import System.IO (openFile, hSetEncoding, IOMode (WriteMode), hClose, openBinaryFile)
 import System.FilePath ((</>))
+import Data.Encoding.GB18030 (GB18030(GB18030))
+import Data.Encoding.UTF8 (UTF8 (UTF8))
+import Data.Encoding.ShiftJIS (ShiftJIS (ShiftJIS))
+import Data.Encoding (Encoding)
+import System.IO.Encoding (writeFile)
 
 -- expand pymo pak file and generate nscript.dat (or 0.txt for nscripter?)
 -- https://kaisernet.fka.cx/onscripter/api/NScrAPI-framed.html
-pymo2nscripter :: (FilePath -> String -> IO ()) -> PyMOGame -> IO ()
-pymo2nscripter write game = do
+pymo2nscripter :: (Encoding e, ?enc :: e) => PyMOGame -> IO ()
+pymo2nscripter game = do
   let (nscript, log) = getNScriptAndLog $ writePyMOGame game
       (PyMOGame path _ _ _ _) = game
   putStrLn log
-  write (path </> "0.txt") nscript
+  writeFile (path </> "0.txt") nscript
 
 pymo2nscripterUTF8 :: PyMOGame -> IO ()
-pymo2nscripterUTF8 = pymo2nscripter writeFile
+pymo2nscripterUTF8 = pymo2nscripter where ?enc = UTF8
+
+pymo2nscripterGB18030 :: PyMOGame -> IO ()
+pymo2nscripterGB18030 = pymo2nscripter where ?enc = GB18030
+
+pymo2nscripterSJIS :: PyMOGame -> IO ()
+pymo2nscripterSJIS = pymo2nscripter where ?enc = ShiftJIS
 
 type NSWriter = Writer ([String], [String])
 
